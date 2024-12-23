@@ -50,6 +50,13 @@ async function LoadPage(url: string, cookies: object[]) : Promise<string> {
                     "--disable-setuid-sandbox"
                 ]
             });
+            browser.on('disconnected', async () => {
+                // this just happens sometimes and i don't really know why...
+                // but whatever just open up a new browser instance and work with that
+                let browser_copy = browser;
+                browser = null;
+                browser_copy.close();
+            });
         }
         const [page] = await browser.pages();
         await page.setCookie(...cookies);
@@ -58,7 +65,7 @@ async function LoadPage(url: string, cookies: object[]) : Promise<string> {
         html_content = await page.content();
     } catch (err) {
         //console.error('Error downloading the webpage:', err);
-        //usually just a timeout error
+        //usually just a timeout error/browser disconnect
         //happens quite often so just ignore the error entierly
         //but if something seems off just add the error logging back in
     }
@@ -158,29 +165,28 @@ async function LoadReweData() {
             const category_name = href.substring(category_name_start, category_name_end);
             console.log(category_name)
             const dom = new JSDOM(await LoadPageDefinitive(category_url, rewe_cookies))
-            ParseContent(dom, category_name);
+            full_data.push(ParseContent(dom, category_name));
             const last_page_idx = GetLastPageIndex(dom);
             if(isNaN(last_page_idx)) {
                 continue;
             }
-
-            for(let i = 2; i < last_page_idx; i++) {
+            for(let i = 2; i <= last_page_idx; i++) {
                 const page_url = href.substring(0, category_name_start) + category_name + "/?page=" + i;
                 const dom = new JSDOM(await LoadPageDefinitive(rewe_shop_url + page_url, rewe_cookies))
                 full_data.push(ParseContent(dom, category_name));
             }
         }
     }
+    if(browser) {
+        await browser.close();
+        browser = null;
+    }
     let today = new Date();
     let dd = String(today.getDate()).padStart(2, '0');
     let mm = String(today.getMonth() + 1).padStart(2, '0');
     let yyyy = today.getFullYear();
     let filename = yyyy + "." + mm + "." + dd+ ".json";
-    WriteFile("rewe/json/" + filename, JSON.stringify(full_data), (err) => {
-        if(err) {
-            console.log("Failed to Write Rewe json file: " + err);
-        }
-    });
+    fs.writeFileSync("rewe/json/" + filename, JSON.stringify(full_data))
 }
 
 function NormalizeReweData(data: object, date: string) {
@@ -206,7 +212,7 @@ function NormalizeReweData(data: object, date: string) {
                     "id": normalized_id,
                     "date": date,
                     "name": name,
-                    "image": img_url[1], // only once
+                    "image": img_url,
                     "price": TransformToNumber(price),
                     "categories": [category_name],
                     "company": "rewe",
@@ -221,7 +227,7 @@ function WriteToDatabase(data: any) {
     db.run("BEGIN TRANSACTION");
     for(let product_idx in data) {
         let product = data[product_idx];
-        db.run("INSERT INTO products (id, date, name, image, price, categories, company) VALUES (?, ?, ?, ?, ?, ?, ?)", [product.id, product.date, product.name, product.image, product.price, JSON.stringify(product.categories), product.company]);
+        db.run("INSERT or IGNORE INTO products (id, date, name, image, price, categories, company) VALUES (?, ?, ?, ?, ?, ?, ?)", [product.id, product.date, product.name, product.image, product.price, JSON.stringify(product.categories), product.company]);
     }
     db.run("COMMIT");
 }
@@ -234,11 +240,9 @@ async function ExtractAndStore() {
     let yyyy = today.getFullYear();
     let date = yyyy + "." + mm + "." + dd;
     let current_date_filename = date + ".json";
-    await fs.exists("rewe/json/" + current_date_filename, (exist) => {
-        if(!exist) {
-            LoadReweData();
-        }
-    });
+    if(!fs.existsSync("rewe/json/" + current_date_filename)) {
+        await LoadReweData();
+    }
 
     let data = JSON.parse(fs.readFileSync("rewe/json/" + current_date_filename));
     let new_data = NormalizeReweData(data, date);

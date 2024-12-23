@@ -18,3 +18,4 @@ run:
 ```
 npx tsx extractor_rewe.ts
 ```
+
