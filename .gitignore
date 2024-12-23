@@ -1,0 +1,4 @@
+/node_modules
+/database/products.db
+/__pycache__
+/rewe/json/*.json

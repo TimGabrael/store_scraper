@@ -1,0 +1,9 @@
+{
+  "name": "scraper",
+  "version": "1.0.0",
+  "author": "",
+  "type": "commonjs",
+  "dependencies": {
+    "sqlite3": "^5.1.7"
+  }
+}
